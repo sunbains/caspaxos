@@ -34,34 +34,20 @@ P2P_mesh::P2P_mesh(const std::string& id, int listen_port)
 }
 
 P2P_mesh::~P2P_mesh() noexcept {
-  m_running = false;
-    
-  /* Close all connections */
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  for (auto& peer : m_peers) {
-    if (peer.second.m_connected) {
-      ::close(peer.second.m_socket);
-    }
-  }
-
-  /* Close server socket */
-  ::close(m_server_socket);
-
-  /* Join all worker threads. */
-  for (auto& thread : m_threads) {
-    if (thread.joinable()) {
-      thread.join();
-    }
-  }
+  shutdown();
 }
 
 void P2P_mesh::start() noexcept {
   /* Start accepting connections in a separate thread. */
-  m_threads.emplace_back(&P2P_mesh::accept_connections, this);
+  m_running.store(true);
+  m_accept_thread = std::thread(&P2P_mesh::accept_connections, this);
 }
 
 bool P2P_mesh::connect_to_peer(const std::string& peer_id, const std::string& peer_ip, int peer_port) noexcept {
+  if (!m_running.load()) {
+    return false;
+  }
+
   int sock = socket(AF_INET, SOCK_STREAM, 0);
 
   if (sock < 0) {
@@ -84,13 +70,16 @@ bool P2P_mesh::connect_to_peer(const std::string& peer_id, const std::string& pe
   /* Send our node ID */
   ::send(sock, m_node_id.c_str(), m_node_id.length(), 0);
 
-  /* Add peer to our list */
+  /* Add peer to our list, and start handler thread. */
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  m_peers[peer_id] = { peer_ip, peer_port, sock, true};
+  auto& peer = m_peers[peer_id];
 
-  /* Start handler thread for this peer */
-  m_threads.emplace_back(&P2P_mesh::handle_peer_connection, this, peer_id);
+  peer.m_ip = peer_ip;
+  peer.m_port = peer_port;
+  peer.m_socket = sock;
+  peer.m_connected = true;
+  peer.m_handler = std::thread(&P2P_mesh::handle_peer_connection, this, peer_id);
 
   return true;
 }
@@ -115,9 +104,9 @@ std::string P2P_mesh::to_string() noexcept {
 
   for (const auto& peer : m_peers) {
     os << "id: { " << peer.first
-       << ", ip: " << peer.second.m_port
+       << ", ip: " << peer.second.m_ip
        << ", port: " << peer.second.m_port
-       << ",connected: "
+       << ", connected: "
        << (peer.second.m_connected ? "true" : "false")
        << "}, ";
   }
@@ -157,57 +146,104 @@ int P2P_mesh::initialize_server_socket() noexcept {
 }
 
 void P2P_mesh::accept_connections() noexcept {
-  while (m_running) {
+  while (m_running.load()) {
+    fd_set read_set;
+
+    FD_ZERO(&read_set);
+    FD_SET(m_server_socket, &read_set);
+
+    // Use select with timeout to make accept interruptible
+    struct timeval timeout;
+
+    /* 1 second timeout */
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    int result = select(m_server_socket + 1, &read_set, nullptr, nullptr, &timeout);
+
+    if (result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      break;
+    }
+
+    if (result == 0) continue;  // Timeout, check running flag
+
     sockaddr_in client_addr{};
     socklen_t client_addr_len = sizeof(client_addr);
-    int client_socket = ::accept(m_server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
+
+    auto client_socket = accept(m_server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
+
+    if (!m_running.load()) {
+      break;
+    }
 
     if (client_socket < 0) {
-      std::cerr << "Failed to accept connection\n";
+      std::cerr << "Failed to accept connection" << std::endl;
       continue;
     }
 
-    /* Receive peer ID. */
+    struct timeval tv;
+
+    /* 5 second timeout */
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+
+    ::setsockopt(client_socket, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    // Receive peer ID
     std::array<char, 1024> buffer{};
 
     recv(client_socket, buffer.data(), buffer.size() - 1, 0);
 
     std::string peer_id(buffer.data());
 
-    /* Add new peer. */
+    // Add new peer
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    m_peers[peer_id] = {
-      inet_ntoa(client_addr.sin_addr),
-      ntohs(client_addr.sin_port),
-      client_socket,
-      true
-    };
+    auto& peer = m_peers[peer_id];
 
-    /* Start handler thread for this peer. */
-    m_threads.emplace_back(&P2P_mesh::handle_peer_connection, this, peer_id);
+    peer.m_ip = inet_ntoa(client_addr.sin_addr);
+    peer.m_port = ntohs(client_addr.sin_port);
+    peer.m_socket = client_socket;
+    peer.m_connected = true;
+    peer.m_handler = std::thread(&P2P_mesh::handle_peer_connection, this, peer_id);
+  }
+}
+
+void P2P_mesh::disconnect_peer(const std::string& peer_id) noexcept {
+  std::lock_guard<std::mutex> lock(m_mutex);
+
+  if (m_peers.count(peer_id) > 0) {
+    auto& peer = m_peers[peer_id];
+
+    if (peer.m_connected) {
+      peer.m_connected = false;
+      ::close(peer.m_socket);
+    }
   }
 }
 
 void P2P_mesh::handle_peer_connection(std::string peer_id) noexcept {
   std::array<char, 1024> buffer{};
 
-  while (m_running) {
+  while (m_running.load()) {
     memset(buffer.data(), 0, buffer.size());
     int bytes_read = recv(m_peers[peer_id].m_socket, buffer.data(), buffer.size() - 1, 0);
-            
+
+
     if (bytes_read <= 0) {
-      // Connection closed or error
-      std::lock_guard<std::mutex> lock(m_mutex);
-
-      m_peers[peer_id].m_connected = false;
-      ::close(m_peers[peer_id].m_socket);
-
+      disconnect_peer(peer_id);
       break;
     }
 
-    // Process received message
     std::string message(buffer.data());
+
+    if (message == "_$SHUTDOWN$_") {
+      disconnect_peer(peer_id);
+      break;
+    }
 
     process_message(peer_id, message);
   }
@@ -220,12 +256,82 @@ void P2P_mesh::process_message(const std::string& from_peer, const std::string& 
   for (auto& peer : m_peers) {
     if (peer.first != from_peer && peer.second.m_connected) {
       std::string forward_msg = "FROM " + from_peer + ": " + message;
-      send(peer.second.m_socket, forward_msg.c_str(), forward_msg.length(), 0);
+      auto sz = send(peer.second.m_socket, forward_msg.c_str(), forward_msg.length(), 0);
+
+      if (sz < 0) {
+        std::cerr << "Failed to forward message to peer " << peer.first << std::endl;
+
+        switch (errno) {
+          case EPIPE:
+          case ECONNRESET:
+            disconnect_peer(peer.first);
+            break;
+          case EINTR:
+          case EAGAIN:
+            continue;
+          default:
+            std::cerr << "send() returned errno: " << errno << std::endl;
+            break;
+        }
+      }
     }
   }
 
   // Print received message
   std::cout << "Message from " << from_peer << ": " << message << "'\n";
+}
+
+void P2P_mesh::shutdown() noexcept {
+  if (!m_running.exchange(false)) {
+    /* Already shut down */
+    return;
+  }
+
+  /* Send shutdown message to all peers */
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    for (auto& peer : m_peers) {
+      if (peer.second.m_connected) {
+        /* Send shutdown signal */
+        std::string shutdownMsg = "_$SHUTDOWN$_";
+        send(peer.second.m_socket, shutdownMsg.c_str(), shutdownMsg.length(), 0);
+        
+        ::close(peer.second.m_socket);
+        peer.second.m_connected = false;
+      }
+    }
+  }
+
+  /* Close server socket to interrupt accept() */
+  ::close(m_server_socket);
+
+  /* Wait for accept thread to finish */
+  if (m_accept_thread.joinable()) {
+    m_accept_thread.join();
+  }
+
+  /* Wait for all peer handler threads to finish */
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    for (auto& peer : m_peers) {
+      if (peer.second.m_handler.joinable()) {
+        peer.second.m_handler.join();
+      }
+    }
+
+    m_peers.clear();
+  }
+
+  /* Notify any waiting threads */
+  {
+    std::lock_guard<std::mutex> lock(m_shutdown_mutex);
+
+    m_shutdown_cv.notify_all();
+  }
+
+  std::cout << "Node " << m_node_id << " shut down successfully" << std::endl;
 }
 
 } // namespace net

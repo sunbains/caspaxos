@@ -99,15 +99,18 @@ TEST_F(P2P_mesh_network_test, Test_basic_connection) {
     std::string output = testing::internal::GetCapturedStdout();
     
     EXPECT_THAT(output, testing::HasSubstr("Node2"));
-    EXPECT_THAT(output, testing::HasSubstr("127.0.0.1:8002"));
+    EXPECT_THAT(output, testing::HasSubstr("ip: 127.0.0.1, port: 8002"));
+
+    // Close the connection.
+    node1->shutdown();
 }
 
 // Test message broadcasting between multiple nodes
 TEST_F(P2P_mesh_network_test, Test_message_broadcast) {
-    // Connect nodes in a triangle
+    /* Connect nodes in a triangle */
+    ASSERT_TRUE(node3->connect_to_peer("Node1", "127.0.0.1", 8001));
     ASSERT_TRUE(node1->connect_to_peer("Node2", "127.0.0.1", 8002));
     ASSERT_TRUE(node2->connect_to_peer("Node3", "127.0.0.1", 8003));
-    ASSERT_TRUE(node3->connect_to_peer("Node1", "127.0.0.1", 8001));
     
     // Allow time for connections to establish
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

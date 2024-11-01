@@ -1,9 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <sstream>
+#include <condition_variable>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +48,11 @@ struct P2P_mesh {
     void broadcast(const std::string& message) noexcept;
 
     /**
+     * @brief Shutdown the P2P mesh node
+     */
+    void shutdown() noexcept;
+
+    /**
      * @brief List all peers
      * 
      * @return A string containing the list of peers
@@ -80,17 +87,29 @@ private:
      */
     void process_message(const std::string& from_peer, const std::string& message) noexcept;
 
+    /**
+     * @brief Disconnect a peer
+     * 
+     * @param[in] peer_id The ID of the peer to disconnect
+     */
+    void disconnect_peer(const std::string& peer_id) noexcept;
+
 private:
     struct Peer {
         std::string m_ip{};
         int m_port{};
         int m_socket{};
         bool m_connected{};
+        std::thread m_handler{};
     };
 
     int m_port{};
 
-    bool m_running{};
+    std::atomic<bool> m_running{};
+
+    std::condition_variable m_shutdown_cv;
+
+    std::mutex m_shutdown_mutex;
 
     int m_server_socket{};
 
@@ -98,7 +117,7 @@ private:
 
     mutable std::mutex m_mutex;
 
-    std::vector<std::jthread> m_threads{};
+    std::thread m_accept_thread{};
 
     std::unordered_map<std::string, Peer> m_peers{};
 };
