@@ -1,0 +1,40 @@
+caspaxos/
+├── CMakeLists.txt
+├── cmake/
+│   └── p2p_mesh_network-config.cmake.in
+├── include/
+│   └── p2p_mesh_network.hpp
+├── lib/
+│   └── libcaspaxos.a
+│   └── libcaspaxos.so
+├── src/
+│   └── p2p_mesh_network.cpp
+└── tests/
+    └── p2p_mesh_network_tests.cpp
+
+This CMake configuration provides:
+
+Library Configuration:
+
+ - Creates a shared/static library target
+ - Sets up include directories
+ - Configures installation rules
+
+Test Configuration:
+
+ - Automatically downloads and configures Google Test
+ - Creates test executable
+ - Provides verbose test target
+
+Installation Support:
+
+ - Generates and installs CMake config files
+ - Creates proper installation rules
+ - Supports CMake package finding
+
+Build Features:
+
+ - C++17 standard requirement
+ - Compiler warnings enabled
+ - Thread support included
+ - Debug and Release configurations
