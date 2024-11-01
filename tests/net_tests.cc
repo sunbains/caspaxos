@@ -53,9 +53,9 @@ class P2P_mesh_network_test : public ::testing::Test {
 protected:
     void SetUp() override {
         // Start nodes on different ports
-        node1 = std::make_unique<P2P_mesh_node>("Node1", 8001);
-        node2 = std::make_unique<P2P_mesh_node>("Node2", 8002);
-        node3 = std::make_unique<P2P_mesh_node>("Node3", 8003);
+        node1 = std::make_unique<net::P2P_mesh>("Node1", 8001);
+        node2 = std::make_unique<net::P2P_mesh>("Node2", 8002);
+        node3 = std::make_unique<net::P2P_mesh>("Node3", 8003);
         
         node1->start();
         node2->start();
@@ -74,9 +74,9 @@ protected:
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    std::unique_ptr<P2P_mesh_node> node1;
-    std::unique_ptr<P2P_mesh_node> node2;
-    std::unique_ptr<P2P_mesh_node> node3;
+    std::unique_ptr<net::P2P_mesh> node1;
+    std::unique_ptr<net::P2P_mesh> node2;
+    std::unique_ptr<net::P2P_mesh> node3;
 };
 
 // Mock class for network message verification
@@ -121,7 +121,7 @@ TEST_F(P2P_mesh_network_test, Test_message_broadcast) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
     // Message verification would require adding message callback functionality
-    // to the P2P_mesh_node class to verify reception
+    // to the P2P_mesh class to verify reception
 }
 
 // Test connection failure handling
@@ -160,7 +160,7 @@ TEST_F(P2P_mesh_network_test, Test_cleanup) {
     
     // Create a scope for node destruction
     {
-        auto temp_node = std::make_unique<P2P_mesh_node>("TempNode", 8004);
+        auto temp_node = std::make_unique<net::P2P_mesh>("TempNode", 8004);
 
         temp_node->start();
         ASSERT_TRUE(temp_node->connect_to_peer("Node1", "127.0.0.1", 8001));

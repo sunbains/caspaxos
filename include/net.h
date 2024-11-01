@@ -7,19 +7,20 @@
 #include <unordered_map>
 #include <vector>
 
-struct P2P_mesh_node {
+namespace net {
+struct P2P_mesh {
     /**
      * @brief Constructor for the P2P mesh node. Throws an exception if the server socket fails to initialize.
      * 
      * @param[in] id The ID of the node
      * @param[in] listen_port The port to listen for incoming connections
      */
-    P2P_mesh_node(const std::string& id, int listen_port);
+    P2P_mesh(const std::string& id, int listen_port);
 
     /**
      * @brief Destructor for the P2P mesh node
      */
-    ~P2P_mesh_node() noexcept;
+    ~P2P_mesh() noexcept;
 
     /**
      * @brief Start the P2P mesh node
@@ -101,3 +102,5 @@ private:
 
     std::unordered_map<std::string, Peer> m_peers{};
 };
+
+} // namespace net

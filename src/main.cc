@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
   }
 
   /* Create a node listening on port 8000 */
-  P2P_mesh_node node("node1", 8000);
+  P2P_mesh node("node1", 8000);
 
   node.start();
 

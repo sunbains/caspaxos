@@ -23,7 +23,9 @@
  * Thread-safe design for concurrent operations
 */
 
-P2P_mesh_node::P2P_mesh_node(const std::string& id, int listen_port)
+namespace net {
+
+P2P_mesh::P2P_mesh(const std::string& id, int listen_port)
   : m_port(listen_port), m_running(true), m_node_id(id) {
 
   if (initialize_server_socket() != 0) {
@@ -31,7 +33,7 @@ P2P_mesh_node::P2P_mesh_node(const std::string& id, int listen_port)
   }
 }
 
-P2P_mesh_node::~P2P_mesh_node() noexcept {
+P2P_mesh::~P2P_mesh() noexcept {
   m_running = false;
     
   /* Close all connections */
@@ -54,12 +56,12 @@ P2P_mesh_node::~P2P_mesh_node() noexcept {
   }
 }
 
-void P2P_mesh_node::start() noexcept {
+void P2P_mesh::start() noexcept {
   /* Start accepting connections in a separate thread. */
-  m_threads.emplace_back(&P2P_mesh_node::accept_connections, this);
+  m_threads.emplace_back(&P2P_mesh::accept_connections, this);
 }
 
-bool P2P_mesh_node::connect_to_peer(const std::string& peer_id, const std::string& peer_ip, int peer_port) noexcept {
+bool P2P_mesh::connect_to_peer(const std::string& peer_id, const std::string& peer_ip, int peer_port) noexcept {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
 
   if (sock < 0) {
@@ -88,12 +90,12 @@ bool P2P_mesh_node::connect_to_peer(const std::string& peer_id, const std::strin
   m_peers[peer_id] = { peer_ip, peer_port, sock, true};
 
   /* Start handler thread for this peer */
-  m_threads.emplace_back(&P2P_mesh_node::handle_peer_connection, this, peer_id);
+  m_threads.emplace_back(&P2P_mesh::handle_peer_connection, this, peer_id);
 
   return true;
 }
 
-void P2P_mesh_node::broadcast(const std::string& m) noexcept {
+void P2P_mesh::broadcast(const std::string& m) noexcept {
   std::lock_guard<std::mutex> lock(m_mutex);
 
   const std::string message = "FROM " + m_node_id + ": " + m;
@@ -105,7 +107,7 @@ void P2P_mesh_node::broadcast(const std::string& m) noexcept {
   }
 }
 
-std::string P2P_mesh_node::to_string() noexcept {
+std::string P2P_mesh::to_string() noexcept {
   std::ostringstream os;
   std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -125,7 +127,7 @@ std::string P2P_mesh_node::to_string() noexcept {
   return os.str();
 }
 
-int P2P_mesh_node::initialize_server_socket() noexcept {
+int P2P_mesh::initialize_server_socket() noexcept {
   m_server_socket = ::socket(AF_INET, SOCK_STREAM, 0);
 
    if (m_server_socket < 0) {
@@ -154,7 +156,7 @@ int P2P_mesh_node::initialize_server_socket() noexcept {
    return 0;
 }
 
-void P2P_mesh_node::accept_connections() noexcept {
+void P2P_mesh::accept_connections() noexcept {
   while (m_running) {
     sockaddr_in client_addr{};
     socklen_t client_addr_len = sizeof(client_addr);
@@ -183,11 +185,11 @@ void P2P_mesh_node::accept_connections() noexcept {
     };
 
     /* Start handler thread for this peer. */
-    m_threads.emplace_back(&P2P_mesh_node::handle_peer_connection, this, peer_id);
+    m_threads.emplace_back(&P2P_mesh::handle_peer_connection, this, peer_id);
   }
 }
 
-void P2P_mesh_node::handle_peer_connection(std::string peer_id) noexcept {
+void P2P_mesh::handle_peer_connection(std::string peer_id) noexcept {
   std::array<char, 1024> buffer{};
 
   while (m_running) {
@@ -211,7 +213,7 @@ void P2P_mesh_node::handle_peer_connection(std::string peer_id) noexcept {
   }
 }
 
-void P2P_mesh_node::process_message(const std::string& from_peer, const std::string& message) noexcept {
+void P2P_mesh::process_message(const std::string& from_peer, const std::string& message) noexcept {
 
   std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -226,4 +228,4 @@ void P2P_mesh_node::process_message(const std::string& from_peer, const std::str
   std::cout << "Message from " << from_peer << ": " << message << "'\n";
 }
 
-
+} // namespace net
