@@ -8,8 +8,61 @@
 #include <condition_variable>
 #include <unordered_map>
 #include <vector>
+#include <array>
+#include <cassert>
 
 namespace net {
+struct Message {
+    // FIXME: This is a temporary buffer size. We need to handle large messages better.
+    constexpr static auto Buffer_size = 112400;
+    using Buffer = std::array<char, Buffer_size>;
+
+    /**
+     * @brief Default constructor for the message
+     */
+    Message() noexcept = default;
+
+    /**
+     * @brief Constructor for the message
+     * 
+     * @param[in] from_peer The ID of the peer that sent the message
+     * @param[in] message The message to send
+     */
+    Message(const std::string& from_peer, const std::string& message) noexcept : m_from_peer(from_peer), m_message(message) {
+      assert(from_peer.length() + message.length() + 2 <= Buffer_size);
+    }
+
+    /**
+     * @brief Serialize the message
+     * 
+     * @return A pair containing a pointer (inside buffer) to the serialized message and the size of the message
+     */
+    [[nodiscard]] std::pair<char*, size_t> serialize(Buffer& buffer) const noexcept;
+
+    /**
+     * @brief Deserialize the message
+     */
+    void deserialize(const Buffer& buffer) noexcept;
+
+    /**
+     * @brief Convert the message to a string
+     * 
+     * @return A string representation of the message
+     */
+    [[nodiscard]] std::string to_string() const noexcept;
+
+    /**
+     * @brief Clear the message
+     */
+    void clear() noexcept {
+      m_from_peer.clear();
+      m_message.clear();
+    }
+
+    std::string m_from_peer{};
+    std::string m_message{};
+};
+
 struct P2P_mesh {
     /**
      * @brief Constructor for the P2P mesh node. Throws an exception if the server socket fails to initialize.
@@ -23,11 +76,6 @@ struct P2P_mesh {
      * @brief Destructor for the P2P mesh node
      */
     ~P2P_mesh() noexcept;
-
-    /**
-     * @brief Start the P2P mesh node
-     */
-    void start() noexcept;
 
     /**
      * @brief Connect to a peer
@@ -59,7 +107,13 @@ struct P2P_mesh {
      */
     [[nodiscard]] std::string to_string() noexcept;
 
+    /**
+     * @brief Start the P2P mesh node
+     */
+    void start();
+
 private:
+
     /**
      * @brief Initialize the server socket
      * 
@@ -82,10 +136,9 @@ private:
     /**
      * @brief Process a message from a peer
      * 
-     * @param[in] from_peer The ID of the peer that sent the message
      * @param[in] message The message to process
      */
-    void process_message(const std::string& from_peer, const std::string& message) noexcept;
+    void process_message(const Message& message) noexcept;
 
     /**
      * @brief Disconnect a peer
