@@ -11,57 +11,18 @@
 #include <array>
 #include <cassert>
 
+namespace msg {
+  struct Simple { 
+    std::string m_from_peer;
+    std::string m_message;
+  };
+
+template <size_t Size> struct Deserialize;
+
+static const char SHUTDOWN_MESSAGE[] = "_/SHUTDOWN\\_";
+
+} // namespace msg
 namespace net {
-struct Message {
-    // FIXME: This is a temporary buffer size. We need to handle large messages better.
-    constexpr static auto Buffer_size = 112400;
-    using Buffer = std::array<char, Buffer_size>;
-
-    /**
-     * @brief Default constructor for the message
-     */
-    Message() noexcept = default;
-
-    /**
-     * @brief Constructor for the message
-     * 
-     * @param[in] from_peer The ID of the peer that sent the message
-     * @param[in] message The message to send
-     */
-    Message(const std::string& from_peer, const std::string& message) noexcept : m_from_peer(from_peer), m_message(message) {
-      assert(from_peer.length() + message.length() + 2 <= Buffer_size);
-    }
-
-    /**
-     * @brief Serialize the message
-     * 
-     * @return A pair containing a pointer (inside buffer) to the serialized message and the size of the message
-     */
-    [[nodiscard]] std::pair<char*, size_t> serialize(Buffer& buffer) const noexcept;
-
-    /**
-     * @brief Deserialize the message
-     */
-    void deserialize(const Buffer& buffer) noexcept;
-
-    /**
-     * @brief Convert the message to a string
-     * 
-     * @return A string representation of the message
-     */
-    [[nodiscard]] std::string to_string() const noexcept;
-
-    /**
-     * @brief Clear the message
-     */
-    void clear() noexcept {
-      m_from_peer.clear();
-      m_message.clear();
-    }
-
-    std::string m_from_peer{};
-    std::string m_message{};
-};
 
 struct P2P_mesh {
     /**
@@ -115,6 +76,28 @@ struct P2P_mesh {
 private:
 
     /**
+     * @brief Send a message to a peer
+     * 
+     * @param[in] socket The socket to send the message to
+     * @param[in] ptr The message to send
+     * @param[in] len The length of the message
+     * 
+     * @return 0 on success, errno on failure
+     */
+    int send(int socket, const char* ptr, size_t len) noexcept;
+
+    /**
+     * @brief Receive a message from a peer
+     * 
+     * @param[in] socket The socket to receive the message from
+     * @param[in] deserializer The deserializer to use
+     * 
+     * @return 0 on success, errno on failure
+     */
+    template <size_t Buffer_size>
+    int recv(int socket, msg::Deserialize<Buffer_size>& deserializer) noexcept;
+
+    /**
      * @brief Initialize the server socket
      * 
      * @return 0 on success, errno on failure
@@ -129,16 +112,16 @@ private:
     /**
      * @brief Handle a peer connection
      * 
-     * @param[in] peer_id The ID of the connecting peer
+     * @param[in] socket The socket of the connecting peer
      */
-    void handle_peer_connection(std::string peer_id) noexcept;
+    void handle_peer_connection(int socket) noexcept;
 
     /**
      * @brief Process a message from a peer
      * 
      * @param[in] message The message to process
      */
-    void process_message(const Message& message) noexcept;
+    void process_message(const msg::Simple& message) noexcept;
 
     /**
      * @brief Disconnect a peer
@@ -149,18 +132,14 @@ private:
 
 private:
     struct Peer {
-        std::string m_ip{};
-        int m_port{};
-        int m_socket{};
-        bool m_connected{};
-        std::thread m_handler{};
+      std::string m_ip{};
+      int m_port{};
+      int m_socket{};
+      bool m_connected{};
+      std::thread m_handler{};
     };
 
     int m_port{};
-
-    std::atomic<bool> m_running{};
-
-    std::condition_variable m_shutdown_cv;
 
     std::mutex m_shutdown_mutex;
 
@@ -171,6 +150,10 @@ private:
     mutable std::mutex m_mutex;
 
     std::thread m_accept_thread{};
+
+    mutable std::atomic<int> m_running{};
+
+    std::condition_variable m_shutdown_cv;
 
     std::unordered_map<std::string, Peer> m_peers{};
 };
